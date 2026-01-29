@@ -1,0 +1,68 @@
+name: Update Exchange Rates
+
+on:
+  schedule:
+    # Run daily at 6:00 AM UTC (after forex markets update)
+    - cron: '0 6 * * *'
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  update-rates:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Update exchange rates
+        env:
+          EXCHANGE_RATE_API_KEY: ${{ secrets.EXCHANGE_RATE_API_KEY }}
+        run: |
+          # Get today's date
+          TODAY=$(date +%Y-%m-%d)
+          
+          # Read current rates file
+          RATES_FILE="usd-eur-rates.json"
+          
+          # Check if today's rate already exists
+          if grep -q "\"$TODAY\"" "$RATES_FILE"; then
+            echo "Rate for $TODAY already exists, skipping..."
+            exit 0
+          fi
+          
+          # Fetch today's rate from API
+          echo "Fetching rate for $TODAY..."
+          RESPONSE=$(curl -s "https://api.exchangerate.host/live?access_key=${EXCHANGE_RATE_API_KEY}&source=USD&currencies=EUR")
+          
+          # Extract the rate
+          RATE=$(echo $RESPONSE | grep -o '"USDEUR":[0-9.]*' | cut -d':' -f2)
+          
+          if [ -z "$RATE" ]; then
+            echo "Failed to fetch rate, API response: $RESPONSE"
+            exit 1
+          fi
+          
+          echo "Got rate: $RATE for $TODAY"
+          
+          # Update the JSON file using Node.js for proper JSON handling
+          node -e "
+            const fs = require('fs');
+            const data = JSON.parse(fs.readFileSync('$RATES_FILE', 'utf8'));
+            data.rates['$TODAY'] = $RATE;
+            data.lastUpdated = '$TODAY';
+            fs.writeFileSync('$RATES_FILE', JSON.stringify(data, null, 2));
+            console.log('Updated rates file');
+          "
+
+      - name: Commit and push changes
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add usd-eur-rates.json
+          git diff --staged --quiet || git commit -m "Update exchange rate for $(date +%Y-%m-%d)"
+          git push
