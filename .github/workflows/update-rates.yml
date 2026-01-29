@@ -32,14 +32,15 @@ jobs:
           # Read current rates file
           RATES_FILE="usd-eur-rates.json"
           
-          # Check if today's rate already exists
-          if grep -q "\"$TODAY\"" "$RATES_FILE"; then
-            echo "Rate for $TODAY already exists, skipping..."
+          # For scheduled runs, skip if rate exists. For manual runs, always update.
+          if [ "${{ github.event_name }}" = "schedule" ] && grep -q "\"$TODAY\"" "$RATES_FILE"; then
+            echo "Rate for $TODAY already exists (scheduled run), skipping..."
             exit 0
           fi
           
+          echo "Fetching rate for $TODAY (trigger: ${{ github.event_name }})..."
+          
           # Fetch today's rate from API
-          echo "Fetching rate for $TODAY..."
           RESPONSE=$(curl -s "https://api.exchangerate.host/live?access_key=${EXCHANGE_RATE_API_KEY}&source=USD&currencies=EUR")
           
           # Extract the rate
